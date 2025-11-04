@@ -7,7 +7,6 @@ and configure kubectl for different EKS and kops clusters.
 """
 
 import os
-import sys
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -30,7 +29,7 @@ def kubert_context_prompt(config: KubertConfig) -> Optional[str]:
     contexts = config.get_context_names()
 
     if not contexts:
-        print("💩 No contexts found in config file", file=sys.stderr)
+        click.echo("💩 No contexts found in config file", err=True)
         return None
 
     selected = iterfzf(
@@ -52,36 +51,36 @@ def kubert_context_prompt(config: KubertConfig) -> Optional[str]:
 def kubeswitch(context: str) -> str:
     """
     Switch to a different kubeconfig file.
-    
+
     Args:
         context: Context name
-        
+
     Returns:
         Path to the kubeconfig file
     """
     kube_dir = Path.home() / ".kube"
     kubeconfig_file = kube_dir / f"{context}.config.yaml"
-    
+
     # Create .kube directory if it doesn't exist
     if not kube_dir.exists():
-        print(f"~/.kube directory not found. Creating it.")
+        click.echo(f"~/.kube directory not found. Creating it.", err=True)
         kube_dir.mkdir(mode=0o700, exist_ok=True)
-    
+
     # Create kubeconfig file if it doesn't exist
     if not kubeconfig_file.exists():
-        print(f"{kubeconfig_file} not found. Creating it.")
+        click.echo(f"{kubeconfig_file} not found. Creating it.", err=True)
         kubeconfig_file.touch(mode=0o600)
-    
-    print(f"$KUBECONFIG is now {kubeconfig_file}")
+
+    click.echo(f"$KUBECONFIG is now {kubeconfig_file}", err=True)
     os.environ['KUBECONFIG'] = str(kubeconfig_file)
-    
+
     return str(kubeconfig_file)
 
 
 def check_current_context() -> bool:
     """
     Check if kubectl has a current context configured.
-    
+
     Returns:
         True if context exists, False otherwise
     """
@@ -94,19 +93,19 @@ def check_current_context() -> bool:
         )
         return result.returncode == 0
     except FileNotFoundError:
-        print("💩 kubectl is not installed or not in PATH", file=sys.stderr)
+        click.echo("💩 kubectl is not installed or not in PATH", err=True)
         return False
 
 
 def update_eks_kubeconfig(cluster: str, region: str, profile: str) -> bool:
     """
     Update kubeconfig for an EKS cluster.
-    
+
     Args:
         cluster: EKS cluster name
         region: AWS region
         profile: AWS profile name
-        
+
     Returns:
         True on success, False on failure
     """
@@ -117,43 +116,47 @@ def update_eks_kubeconfig(cluster: str, region: str, profile: str) -> bool:
             '--region', region,
             '--profile', profile
         ]
-        
+
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print(result.stdout, end='')
+        # Send AWS CLI output to stderr so it doesn't interfere with eval
+        if result.stdout:
+            click.echo(result.stdout, err=True, nl=False)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"💩 Failed to update EKS kubeconfig: {e.stderr}", file=sys.stderr)
+        click.echo(f"💩 Failed to update EKS kubeconfig: {e.stderr}", err=True)
         return False
     except FileNotFoundError:
-        print("💩 aws CLI is not installed or not in PATH", file=sys.stderr)
+        click.echo("💩 aws CLI is not installed or not in PATH", err=True)
         return False
 
 
 def update_kops_kubeconfig(profile: str) -> bool:
     """
     Update kubeconfig for a kops cluster.
-    
+
     Args:
         profile: AWS profile name
-        
+
     Returns:
         True on success, False on failure
     """
     try:
         # Set AWS_PROFILE for kops
         os.environ['AWS_PROFILE'] = profile
-        
+
         # Run kops export kubecfg with chamber
         cmd = ['chamber', 'exec', 'kops', '--', 'kops', 'export', 'kubecfg', '--admin=87600h']
-        
+
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print(result.stdout, end='')
+        # Send kops output to stderr so it doesn't interfere with eval
+        if result.stdout:
+            click.echo(result.stdout, err=True, nl=False)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"💩 Failed to export kops kubeconfig: {e.stderr}", file=sys.stderr)
+        click.echo(f"💩 Failed to export kops kubeconfig: {e.stderr}", err=True)
         return False
     except FileNotFoundError:
-        print("💩 kops or chamber is not installed or not in PATH", file=sys.stderr)
+        click.echo("💩 kops or chamber is not installed or not in PATH", err=True)
         return False
 
 
@@ -196,7 +199,6 @@ def kubert(context: Optional[str] = None, config_file: Optional[Path] = None) ->
         click.echo(f"💩 {e}", err=True)
         return 1
 
-    environment = values["environment"]
     short_region = values["short_region"]
     region = values["region"]
     cluster = values["cluster"]

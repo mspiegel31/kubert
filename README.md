@@ -48,9 +48,53 @@ uv tool install kubert
    # Edit the file with your contexts
    ```
 
-2. Ensure kubectl and AWS CLI are installed and configured
+2. **IMPORTANT: Add shell integration** to your shell config file:
+
+   **For Bash** (`~/.bashrc`):
+   ```bash
+   kubert() {
+       eval "$(command kubert "$@")"
+   }
+
+   assume-role() {
+       eval "$(command assume-role "$@")"
+   }
+   ```
+
+   **For Zsh** (`~/.zshrc`):
+   ```zsh
+   kubert() {
+       eval "$(command kubert "$@")"
+   }
+
+   assume-role() {
+       eval "$(command assume-role "$@")"
+   }
+   ```
+
+   **For Fish** (`~/.config/fish/config.fish`):
+   ```fish
+   function kubert
+       command kubert $argv | source
+   end
+
+   function assume-role
+       command assume-role $argv | source
+   end
+   ```
+
+   Then reload your shell:
+   ```shell
+   source ~/.bashrc  # or ~/.zshrc or restart your terminal
+   ```
+
+   > **Why is this needed?** The kubert command prints `export` statements that need to be executed in your current shell. The wrapper function uses `eval` to execute these commands, allowing environment variables like `KUBECONFIG` to persist in your shell session.
+
+3. Ensure kubectl and AWS CLI are installed and configured
 
 ## Usage
+
+> **⚠️ IMPORTANT:** Make sure you've completed the [shell integration setup](#setup) above! Without it, `kubert` won't switch your context. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) if you have issues.
 
 ### Basic Usage
 
