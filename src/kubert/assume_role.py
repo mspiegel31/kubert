@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from configparser import ConfigParser
 from typing import Optional, List
+import click
 from iterfzf import iterfzf
 
 
@@ -80,8 +81,9 @@ def aws_choose_role(namespace: Optional[str] = "spoton", stage: Optional[str] = 
             '--header', 'Select AWS profile'
         ]
     )
-    
-    return selected
+
+    # iterfzf returns str or None
+    return str(selected) if selected else None
 
 
 def aws_sdk_assume_role(role: Optional[str] = None) -> int:
@@ -110,16 +112,31 @@ def aws_sdk_assume_role(role: Optional[str] = None) -> int:
     return 0
 
 
-def main():
+@click.command()
+@click.argument('role', required=False)
+@click.option(
+    '--namespace',
+    envvar='NAMESPACE',
+    default='spoton',
+    help='Namespace for filtering profiles'
+)
+@click.option(
+    '--stage',
+    envvar='STAGE',
+    help='Stage for filtering profiles'
+)
+def main(role: Optional[str], namespace: str, stage: Optional[str]):
     """
-    Main entry point for the assume-role CLI command.
+    Assume an AWS role by setting AWS_PROFILE.
+
+    ROLE is the AWS profile name. If not provided, shows interactive selection.
+
+    Examples:
+
+        assume-role                    # Interactive profile selection
+
+        assume-role my-profile         # Assume specific profile
     """
-    role = sys.argv[1] if len(sys.argv) > 1 else None
-    
-    # Get namespace and stage from environment if available
-    namespace = os.environ.get('NAMESPACE', 'spoton')
-    stage = os.environ.get('STAGE')
-    
     sys.exit(aws_sdk_assume_role(role))
 
 

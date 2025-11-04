@@ -10,69 +10,29 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any
-import yaml
+from typing import Optional
+import click
 from iterfzf import iterfzf
 
-
-class KubertConfig:
-    """Handles loading and parsing of kubert configuration."""
-    
-    def __init__(self, config_file: Optional[str] = None):
-        """
-        Initialize KubertConfig.
-        
-        Args:
-            config_file: Path to kubert config file. Defaults to ~/.config/kubert.yaml
-        """
-        if config_file:
-            self.config_file = Path(config_file)
-        else:
-            self.config_file = Path.home() / ".config" / "kubert.yaml"
-        
-        self.config = self._load_config()
-    
-    def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
-        if not self.config_file.exists():
-            print(f"💩 Config file not found: {self.config_file}", file=sys.stderr)
-            print(f"Please create a config file at {self.config_file}", file=sys.stderr)
-            print("See example.kubert.yaml for reference", file=sys.stderr)
-            sys.exit(1)
-        
-        with open(self.config_file, 'r') as f:
-            return yaml.safe_load(f)
-    
-    def get_defaults(self) -> Dict[str, str]:
-        """Get default configuration values."""
-        return self.config.get('defaults', {})
-    
-    def get_contexts(self) -> Dict[str, Dict[str, Any]]:
-        """Get all available contexts."""
-        return self.config.get('contexts', {})
-    
-    def get_context(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get a specific context configuration."""
-        contexts = self.get_contexts()
-        return contexts.get(name)
+from .models import KubertConfig
 
 
 def kubert_context_prompt(config: KubertConfig) -> Optional[str]:
     """
     Interactive context selection using fzf.
-    
+
     Args:
         config: KubertConfig instance
-        
+
     Returns:
         Selected context name or None if cancelled
     """
-    contexts = sorted(config.get_contexts().keys())
-    
+    contexts = config.get_context_names()
+
     if not contexts:
         print("💩 No contexts found in config file", file=sys.stderr)
         return None
-    
+
     selected = iterfzf(
         contexts,
         prompt='-> ',
@@ -84,8 +44,9 @@ def kubert_context_prompt(config: KubertConfig) -> Optional[str]:
             '--header', 'Select Kubernetes context'
         ]
     )
-    
-    return selected
+
+    # iterfzf returns str or None
+    return str(selected) if selected else None
 
 
 def kubeswitch(context: str) -> str:
@@ -196,58 +157,57 @@ def update_kops_kubeconfig(profile: str) -> bool:
         return False
 
 
-def kubert(context: Optional[str] = None, config_file: Optional[str] = None) -> int:
+def kubert(context: Optional[str] = None, config_file: Optional[Path] = None) -> int:
     """
     Main kubert function to switch Kubernetes contexts.
-    
+
     Args:
         context: Context name. If None, prompts for selection.
         config_file: Path to config file. If None, uses default.
-        
+
     Returns:
         0 on success, 1 on failure
     """
     # Load configuration
-    config = KubertConfig(config_file)
-    
+    try:
+        if config_file:
+            config = KubertConfig.from_yaml_file(config_file)
+        else:
+            config = KubertConfig.from_default_location()
+    except FileNotFoundError as e:
+        click.echo(f"💩 {e}", err=True)
+        click.echo("Please create a config file. See example.kubert.yaml for reference", err=True)
+        return 1
+    except ValueError as e:
+        click.echo(f"💩 Invalid config file: {e}", err=True)
+        return 1
+
     # Get context from user if not provided
     if not context:
         context = kubert_context_prompt(config)
-    
+
     if not context:
         return 1
-    
-    # Get context configuration
-    context_config = config.get_context(context)
-    if not context_config:
-        print(f"💩 Context {context} not found.", file=sys.stderr)
+
+    # Resolve context values using Pydantic model
+    try:
+        values = config.resolve_context_values(context)
+    except KeyError as e:
+        click.echo(f"💩 {e}", err=True)
         return 1
-    
-    # Get defaults
-    defaults = config.get_defaults()
-    default_short_region = defaults.get('short_region', 'ue1')
-    default_region = defaults.get('region', 'us-east-1')
-    
-    # Extract context settings
-    environment = context_config.get('environment')
-    aws_profile = context_config.get('aws_profile', '')
-    short_region = context_config.get('short_region', default_short_region)
-    region = context_config.get('region', default_region)
-    cluster = context_config.get('cluster', '')
-    
+
+    environment = values["environment"]
+    short_region = values["short_region"]
+    region = values["region"]
+    cluster = values["cluster"]
+    aws_profile = values["aws_profile"]
+    is_kops = values["is_kops"]
+
     # Switch kubeconfig
     kubeswitch(context)
-    
-    # Build cluster name if not specified
-    if not cluster:
-        cluster = f"spoton-{short_region}-{environment}-eks-cluster"
-    
-    # Build AWS profile if not specified
-    if not aws_profile:
-        aws_profile = f"spoton-gbl-{environment}-admin"
-    
+
     # Handle kops vs EKS clusters
-    if context.startswith('kops-'):
+    if is_kops:
         # kops cluster
         success = update_kops_kubeconfig(aws_profile)
     else:
@@ -256,20 +216,20 @@ def kubert(context: Optional[str] = None, config_file: Optional[str] = None) -> 
             success = update_eks_kubeconfig(cluster, region, aws_profile)
         else:
             success = True
-    
+
     if not success:
         return 1
-    
+
     # Export environment variables
     os.environ['AWS_REGION'] = region
     os.environ['AWS_SHORT_REGION'] = short_region
     os.environ['CLUSTER'] = cluster
-    
+
     # Print export commands for shell integration
     print(f"export AWS_REGION={region}")
     print(f"export AWS_SHORT_REGION={short_region}")
     print(f"export CLUSTER={cluster}")
     print(f"export KUBECONFIG={os.environ['KUBECONFIG']}")
-    
+
     return 0
 
