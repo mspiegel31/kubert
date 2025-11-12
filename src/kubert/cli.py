@@ -13,22 +13,43 @@ from .kubert import kubert
 
 
 class KubertGroup(click.Group):
-    """Custom Click group that allows both subcommands and direct context switching."""
+    """
+    Custom Click group that allows both subcommands and direct context switching.
 
-    def get_help(self, ctx):
-        """Override to send help to stderr instead of stdout (for shell eval compatibility)."""
-        help_text = super().get_help(ctx)
-        # Print to stderr so it doesn't get eval'd by the shell wrapper
-        click.echo(help_text, err=True)
-        return ""  # Return empty string so nothing goes to stdout
+    This class solves two problems:
+    1. Allows `kubert dev` (direct context switch) and `kubert setup-shell` (subcommand) syntax
+    2. Redirects all help output to stderr to prevent shell eval issues
+    """
+
+    def main(self, *args, **kwargs):
+        """
+        Override main() to redirect help output to stderr.
+
+        This is the cleanest way to ensure ALL help output (including from subcommands,
+        exceptions, etc.) goes to stderr instead of stdout, preventing the shell wrapper
+        from trying to eval it.
+        """
+        # Temporarily redirect stdout to stderr for help output
+        # We detect help by checking if --help is in sys.argv
+        if '--help' in sys.argv or '-h' in sys.argv:
+            original_stdout = sys.stdout
+            try:
+                # Redirect stdout to stderr for help output
+                sys.stdout = sys.stderr
+                return super().main(*args, **kwargs)
+            finally:
+                # Restore original stdout
+                sys.stdout = original_stdout
+        else:
+            return super().main(*args, **kwargs)
 
     def invoke(self, ctx):
-        # Check if help was requested - if so, print help to stderr and exit
-        # This prevents help text from being sent to stdout where it would be eval'd
-        if '--help' in sys.argv or '-h' in sys.argv:
-            self.get_help(ctx)
-            ctx.exit(0)
+        """
+        Custom invoke to support both subcommands and direct context switching.
 
+        If the first argument is a known subcommand, use normal group behavior.
+        Otherwise, treat it as a context name for direct switching.
+        """
         # Get remaining arguments (Click 8.2+: args contains unparsed tokens)
         args = ctx.args
 
