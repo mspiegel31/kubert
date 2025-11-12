@@ -15,9 +15,22 @@ from .kubert import kubert
 class KubertGroup(click.Group):
     """Custom Click group that allows both subcommands and direct context switching."""
 
+    def get_help(self, ctx):
+        """Override to send help to stderr instead of stdout (for shell eval compatibility)."""
+        help_text = super().get_help(ctx)
+        # Print to stderr so it doesn't get eval'd by the shell wrapper
+        click.echo(help_text, err=True)
+        return ""  # Return empty string so nothing goes to stdout
+
     def invoke(self, ctx):
-        # Get the first argument
-        args = ctx.protected_args + ctx.args
+        # Check if help was requested - if so, print help to stderr and exit
+        # This prevents help text from being sent to stdout where it would be eval'd
+        if '--help' in sys.argv or '-h' in sys.argv:
+            self.get_help(ctx)
+            ctx.exit(0)
+
+        # Get remaining arguments (Click 8.2+: args contains unparsed tokens)
+        args = ctx.args
 
         # If first arg is a known subcommand, use normal group behavior
         if args and args[0] in self.commands:

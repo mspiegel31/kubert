@@ -6,9 +6,9 @@ Automatically configure shell integration for kubert.
 """
 
 import os
-import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 import click
 
 
